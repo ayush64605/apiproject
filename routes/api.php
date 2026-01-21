@@ -25,4 +25,6 @@ Route::prefix('license')->group(function () {
     Route::post('validate', [ApiController::class, 'validate'])->name('validate');
     Route::post('get-active-domain', [ApiController::class, 'getDomain'])->name('get-active-domain');
     Route::post('check-update', [ApiController::class, 'checkUpdate'])->name('check-update');
+    Route::post('reset-license', [ApiController::class, 'resetLicense'])->name('reset-license');
+
 });

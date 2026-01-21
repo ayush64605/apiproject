@@ -6,6 +6,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Product;
+use App\Models\ProductVersions;
+use App\Models\ResetLicenseActivityLogs;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use App\Models\License;
@@ -113,5 +115,99 @@ class ApiController extends Controller
                 "activated_domain" => $license->activated_domain,
             ]
         ]);
+    }
+
+    public function checkUpdate(Request $request)
+    {
+        $request->validate([
+            "item_id" => "required|size:8",
+            "purchase_code" => "required|uuid",
+            "initial" => "nullable|boolean"
+        ]);
+
+        $license = License::where("item_id", $request->item_id)
+            ->where('purchase_code', $request->purchase_code)
+            ->first();
+
+        if (!$license) {
+            return response()->json([
+                'success' => false,
+                'message' => 'License Not Found',
+            ], 400);
+        }
+
+        $query = ProductVersions::where('pid', $request->item_id);
+
+        if ($request->boolean('initial')) {
+            $version = $query->orderBy('version', 'desc')->first();
+        } else {
+            $version = $query->where('version', '>', $license->installed_version)
+                ->orderBy('version', 'asc')
+                ->first();
+        }
+
+        if (!$version) {
+            return response()->json([
+                'success' => true,
+                'message' => 'No updates available',
+                'data' => [
+                    'current_version' => $license->installed_version,
+                    'latest_version' => $version->version
+                ]
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Update available',
+            'data' => [
+                'current_version' => $license->installed_version,
+                'latest_version' => $version->version,
+                "has_sql_update" => true,
+                "release_date" => $version->release_date,
+                "changelog" => $version->changelog,
+                "summary" => $version->summary
+
+            ]
+        ]);
+    }
+
+    public function resetLicense(Request $request)
+    {
+        $request->validate([
+            "item_id" => "required|size:8",
+            "purchase_code" => "required|uuid",
+        ]);
+
+        $license = License::where("item_id", $request->item_id)->where('purchase_code', $request->purchase_code)->first();
+        if (!$license) {
+            return response()->json([
+                'success' => false,
+                'message' => 'License not found',
+            ]);
+        }
+
+        $lastReset = ResetLicenseActivityLogs::where('purchase_code', $request->purchase_code)
+            ->orderBy('id', 'desc')
+            ->first();
+
+        if ($lastReset && $lastReset->reset_license_time->greaterThan(now()->subWeek())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You can only reset your license once per week. Next available reset: ' .
+                    $lastReset->reset_license_time->addWeek()->toDateTimeString()
+            ], 403);
+        }
+
+        ResetLicenseActivityLogs::create([
+            'purchase_code' => $request->purchase_code,
+            'reset_license_time' => now(),
+            'type' => 'agent',
+            'reset_by' => 1,
+        ]);
+        return response()->json([
+            'success' => true,
+            'message' => 'License reset successfully.'
+        ], 200);
     }
 }
