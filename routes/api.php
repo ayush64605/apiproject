@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+use App\Http\Controllers\Api\ApiController;
 
 /*
 |--------------------------------------------------------------------------
@@ -18,3 +19,7 @@ declare(strict_types=1);
 
 // Routes are now loaded automatically from config/apiroute.php
 // See routes/api/v1.php for version 1 routes
+
+Route::prefix('license')->group(function () {
+    Route::get('register', [ApiController::class, 'register'])->name('register');
+});
