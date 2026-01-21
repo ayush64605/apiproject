@@ -26,5 +26,9 @@ Route::prefix('license')->group(function () {
     Route::post('get-active-domain', [ApiController::class, 'getDomain'])->name('get-active-domain');
     Route::post('check-update', [ApiController::class, 'checkUpdate'])->name('check-update');
     Route::post('reset-license', [ApiController::class, 'resetLicense'])->name('reset-license');
+    Route::get('buyers', [ApiController::class, 'buyers'])->name('buyers');
+    Route::get('buyerdetails/{buyer}', [ApiController::class, 'buyerdetails'])->name('buyerdetails');
+    Route::get('api-requests', [ApiController::class, 'apiRequests'])->name('api-requests');
+    Route::get('api-activities', [ApiController::class, 'apiActivities'])->name('api-activities');
 
 });

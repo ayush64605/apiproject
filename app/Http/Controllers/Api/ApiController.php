@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ApiActivities;
+use App\Models\ApiRequest;
+use App\Models\BuyerProfile;
 use App\Models\Product;
 use App\Models\ProductVersions;
 use App\Models\ResetLicenseActivityLogs;
@@ -209,5 +212,73 @@ class ApiController extends Controller
             'success' => true,
             'message' => 'License reset successfully.'
         ], 200);
+    }
+
+    public function buyers()
+    {
+        $buyers = BuyerProfile::select('id', 'envato_username', 'email')->get();
+        return response()->json([
+            'success' => true,
+            'buyers' => $buyers
+        ]);
+    }
+
+    public function buyerdetails($buyer)
+    {
+        try {
+            $buyer = BuyerProfile::findOrFail($buyer);
+            return response()->json([
+                'success' => true,
+                'buyer' => $buyer
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => "Error in fetch details"
+            ], 500);
+        }
+    }
+
+    public function apiRequests(Request $request)
+    {
+        $request->validate([
+            "purchase_code" => "required|uuid",
+            "domain" => "required|url",
+        ]);
+
+        $requests = ApiRequest::where('purchase_code', $request->purchase_code)->where('domain', $request->domain)->get();
+        if (count($requests) == 0) {
+            return response()->json([
+                'success' => false,
+                'message' => "No api request found"
+            ]);
+
+        }
+        return response()->json([
+            'success' => true,
+            'requests' => $requests
+        ]);
+    }
+
+    public function apiActivities(Request $request)
+    {
+        $request->validate([
+            "item_id" => "required|size:8",
+            "purchase_code" => "required|uuid",
+            "domain" => "required|url",
+        ]);
+
+        $activities = ApiActivities::where('item_id', $request->item_id)->where('purchase_code', $request->purchase_code)->where('domain', $request->domain)->get();
+        if (count($activities) == 0) {
+            return response()->json([
+                'success' => false,
+                'message' => "No api activity found"
+            ]);
+
+        }
+        return response()->json([
+            'success' => true,
+            'activities' => $activities
+        ]);
     }
 }
