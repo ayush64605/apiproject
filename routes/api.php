@@ -21,5 +21,8 @@ use App\Http\Controllers\Api\ApiController;
 // See routes/api/v1.php for version 1 routes
 
 Route::prefix('license')->group(function () {
-    Route::get('register', [ApiController::class, 'register'])->name('register');
+    Route::post('register', [ApiController::class, 'register'])->name('register');
+    Route::post('validate', [ApiController::class, 'validate'])->name('validate');
+    Route::post('get-active-domain', [ApiController::class, 'getDomain'])->name('get-active-domain');
+    Route::post('check-update', [ApiController::class, 'checkUpdate'])->name('check-update');
 });

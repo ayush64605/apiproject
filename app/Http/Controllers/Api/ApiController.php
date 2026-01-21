@@ -6,9 +6,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Product;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use App\Models\License;
-use Jenssegers\Agent\Agent; 
+use Jenssegers\Agent\Agent;
 
 class ApiController extends Controller
 {
@@ -28,7 +29,7 @@ class ApiController extends Controller
         if ($exist) {
             return response()->json([
                 "success" => false,
-                "message" => "Invalid license token",
+                "message" => "Invalid purchase code",
                 "error_code" => "TOKEN_INVALID"
             ], 400);
         }
@@ -65,5 +66,52 @@ class ApiController extends Controller
                 "verification_id" => "$request->item_id|$license->id|$request->buyer|$request->purchase_code",
             ]
         ], 200);
+    }
+
+    public function validate(Request $request)
+    {
+        $request->validate([
+            "item_id" => "required|size:8",
+            "purchase_code" => "required|uuid",
+            "activated_domain" => "required|url",
+        ]);
+
+        $license = License::where("item_id", $request->item_id)->where('purchase_code', $request->purchase_code)->first();
+        if (!$license) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Request Not Found',
+            ], 400);
+        }
+
+        $license->last_validate_request = Carbon::now();
+        $license->save();
+        return response()->json([
+            'success' => true,
+            'message' => 'License Validated Sucessfully',
+        ], 200);
+    }
+
+    public function getDomain(Request $request)
+    {
+        $request->validate([
+            'purchase_code' => 'required|uuid',
+        ]);
+
+        $license = License::where('purchase_code', $request->purchase_code)->first();
+        if (!$license) {
+            return response()->json([
+                'success' => false,
+                'message' => 'License not found',
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'License found sucessfully',
+            "data" => [
+                "activated_domain" => $license->activated_domain,
+            ]
+        ]);
     }
 }
