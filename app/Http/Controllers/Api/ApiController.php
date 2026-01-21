@@ -79,23 +79,30 @@ class ApiController extends Controller
             "item_id" => "required|size:8",
             "purchase_code" => "required|uuid",
             "activated_domain" => "required|url",
+            "version" => "required|string",
         ]);
 
-        $license = License::where("item_id", $request->item_id)->where('purchase_code', $request->purchase_code)->first();
+        $license = License::where("item_id", $request->item_id)
+            ->where('purchase_code', $request->purchase_code)
+            ->whereRelation('product.versions', 'version', $request->version)
+            ->first();
+
         if (!$license) {
             return response()->json([
                 'success' => false,
-                'message' => 'Request Not Found',
+                'message' => 'Invalid license or version mismatch.',
             ], 400);
         }
 
         $license->last_validate_request = Carbon::now();
         $license->save();
+
         return response()->json([
             'success' => true,
-            'message' => 'License Validated Sucessfully',
+            'message' => 'License and Version Validated Successfully',
         ], 200);
     }
+
 
     public function getDomain(Request $request)
     {
@@ -133,18 +140,15 @@ class ApiController extends Controller
             ->first();
 
         if (!$license) {
-            return response()->json([
-                'success' => false,
-                'message' => 'License Not Found',
-            ], 400);
+            return response()->json(['success' => false, 'message' => 'License Not Found'], 400);
         }
 
-        $query = ProductVersions::where('pid', $request->item_id);
+        $versionQuery = $license->availableVersions();
 
         if ($request->boolean('initial')) {
-            $version = $query->orderBy('version', 'desc')->first();
+            $version = $versionQuery->latest('version')->first();
         } else {
-            $version = $query->where('version', '>', $license->installed_version)
+            $version = $versionQuery->where('version', '>', $license->installed_version)
                 ->orderBy('version', 'asc')
                 ->first();
         }
@@ -155,7 +159,7 @@ class ApiController extends Controller
                 'message' => 'No updates available',
                 'data' => [
                     'current_version' => $license->installed_version,
-                    'latest_version' => $version->version
+                    'latest_version' => $license->installed_version
                 ]
             ]);
         }
@@ -166,14 +170,14 @@ class ApiController extends Controller
             'data' => [
                 'current_version' => $license->installed_version,
                 'latest_version' => $version->version,
-                "has_sql_update" => true,
+                "has_sql_update" => $version->sql_file_path,
                 "release_date" => $version->release_date,
                 "changelog" => $version->changelog,
                 "summary" => $version->summary
-
             ]
         ]);
     }
+
 
     public function resetLicense(Request $request)
     {
@@ -182,32 +186,34 @@ class ApiController extends Controller
             "purchase_code" => "required|uuid",
         ]);
 
-        $license = License::where("item_id", $request->item_id)->where('purchase_code', $request->purchase_code)->first();
+        $license = License::where("item_id", $request->item_id)
+            ->where('purchase_code', $request->purchase_code)
+            ->first();
+
         if (!$license) {
             return response()->json([
                 'success' => false,
                 'message' => 'License not found',
-            ]);
+            ], 404);
         }
 
-        $lastReset = ResetLicenseActivityLogs::where('purchase_code', $request->purchase_code)
-            ->orderBy('id', 'desc')
-            ->first();
+        $lastReset = $license->resetLogs()->latest('id')->first();
 
         if ($lastReset && $lastReset->reset_license_time->greaterThan(now()->subWeek())) {
+            $nextAvailable = $lastReset->reset_license_time->addWeek();
             return response()->json([
                 'success' => false,
                 'message' => 'You can only reset your license once per week. Next available reset: ' .
-                    $lastReset->reset_license_time->addWeek()->toDateTimeString()
+                    $nextAvailable->toDateTimeString()
             ], 403);
         }
 
-        ResetLicenseActivityLogs::create([
-            'purchase_code' => $request->purchase_code,
+        $license->resetLogs()->create([
             'reset_license_time' => now(),
             'type' => 'agent',
             'reset_by' => 1,
         ]);
+
         return response()->json([
             'success' => true,
             'message' => 'License reset successfully.'
