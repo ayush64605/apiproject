@@ -30,5 +30,12 @@ Route::prefix('license')->group(function () {
     Route::get('buyerdetails/{buyer}', [ApiController::class, 'buyerdetails'])->name('buyerdetails');
     Route::get('api-requests', [ApiController::class, 'apiRequests'])->name('api-requests');
     Route::get('api-activities', [ApiController::class, 'apiActivities'])->name('api-activities');
+    Route::get('download-update/sql/{vid} ', [ApiController::class, 'downloadSql'])->name('downloadsql');
+    Route::get('download-update/main/{vid} ', [ApiController::class, 'downloadMain'])->name('downloadmain');
+    Route::get('products', [ApiController::class, 'products'])->name('products');
+    Route::get('productdetails/{product}', [ApiController::class, 'productDetails'])->name('productdetails');
+    Route::get('blocked-ips', [ApiController::class, 'blockedIps'])->name('blocked-ips');
+    Route::get('blockipdetails/{ip}', [ApiController::class, 'blockipDetails'])->name('blockipdetails');
+    Route::get('license-report', [ApiController::class, 'licenseReport'])->name('license-report');
 
 });

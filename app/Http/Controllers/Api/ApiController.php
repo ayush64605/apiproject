@@ -7,11 +7,13 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\ApiActivities;
 use App\Models\ApiRequest;
+use App\Models\BlockedIps;
 use App\Models\BuyerProfile;
 use App\Models\Product;
 use App\Models\ProductVersions;
 use App\Models\ResetLicenseActivityLogs;
 use Carbon\Carbon;
+use Illuminate\Container\Attributes\Storage;
 use Illuminate\Http\Request;
 use App\Models\License;
 use Jenssegers\Agent\Agent;
@@ -170,7 +172,8 @@ class ApiController extends Controller
             'data' => [
                 'current_version' => $license->installed_version,
                 'latest_version' => $version->version,
-                "has_sql_update" => $version->sql_file_path,
+                'updated_id' => $version->vid,
+                "has_sql_update" => (bool) $version->sql_file,
                 "release_date" => $version->release_date,
                 "changelog" => $version->changelog,
                 "summary" => $version->summary
@@ -271,20 +274,190 @@ class ApiController extends Controller
         $request->validate([
             "item_id" => "required|size:8",
             "purchase_code" => "required|uuid",
-            "domain" => "required|url",
+            "domain" => "required|url"
         ]);
 
-        $activities = ApiActivities::where('item_id', $request->item_id)->where('purchase_code', $request->purchase_code)->where('domain', $request->domain)->get();
-        if (count($activities) == 0) {
+        $query = ApiActivities::where('item_id', $request->item_id)
+            ->where('purchase_code', $request->purchase_code)
+            ->where('domain', $request->domain);
+
+        if ($request->event_type) {
+            $query->where('event_type', 'LIKE', "%{$request->event_type}%");
+        }
+
+
+        $activities = $query->get();
+
+        if ($activities->isEmpty()) {
             return response()->json([
                 'success' => false,
                 'message' => "No api activity found"
-            ]);
-
+            ], 404);
         }
+
         return response()->json([
             'success' => true,
             'activities' => $activities
         ]);
+    }
+
+    public function downloadSql(Request $request, $vid)
+    {
+        $request->validate([
+            "client_name" => "required|min:2|max:30",
+            "purchase_code" => "required|uuid",
+            "domain" => "required|url"
+        ]);
+
+        $license = License::where('purchase_code', $request->purchase_code)->where('activated_domain', $request->domain)->first();
+        if (!$license) {
+            return response()->json([
+                'success' => false,
+                'message' => 'License not found',
+            ], 404);
+        }
+
+        $version = ProductVersions::where('vid', $vid)->first();
+        if (!$version) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Version not found',
+            ], 404);
+        }
+
+        if ($license->item_id != $version->pid || $license->installed_version != $version->version) {
+            return response()->json([
+                'success' => false,
+                'message' => 'license version and version specification not matched',
+            ]);
+        }
+
+        $filePath = storage_path('app/public/sql/' . $version->sql_file);
+
+        if (!file_exists($filePath)) {
+            return response()->json(['error' => 'File not found.'], 404);
+        }
+
+        return response()->download($filePath, $version->sql_file, [
+            'Content-Type' => 'text/plain',
+        ]);
+
+    }
+
+    public function downloadMain(Request $request, $vid)
+    {
+        $request->validate([
+            "client_name" => "required|min:2|max:30",
+            "purchase_code" => "required|uuid",
+            "domain" => "required|url"
+        ]);
+
+        $license = License::where('purchase_code', $request->purchase_code)->where('activated_domain', $request->domain)->first();
+        if (!$license) {
+            return response()->json([
+                'success' => false,
+                'message' => 'License not found',
+            ], 404);
+        }
+
+        $version = ProductVersions::where('vid', $vid)->first();
+        if (!$version) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Version not found',
+            ], 404);
+        }
+
+        if ($license->item_id != $version->pid || $license->installed_version != $version->version) {
+            return response()->json([
+                'success' => false,
+                'message' => 'license version and version specification not matched',
+            ]);
+        }
+
+        $filePath = storage_path('app/public/main/' . $version->main_file);
+
+        if (!file_exists($filePath)) {
+            return response()->json(['error' => 'File not found.'], 404);
+        }
+
+        return response()->download($filePath, $version->main_file, [
+            'Content-Type' => 'text/plain',
+        ]);
+
+    }
+
+    public function products()
+    {
+        $products = Product::all();
+        return response()->json([
+            'success' => true,
+            'products' => $products
+        ]);
+    }
+
+    public function productDetails($product)
+    {
+        try {
+            $product = Product::with('versions')->findOrFail($product);
+
+            return response()->json([
+                'success' => true,
+                'product' => $product
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => "Error in fetch details"
+            ], 500);
+        }
+    }
+
+    public function blockedIps(Request $request)
+    {
+        $query = BlockedIps::query();
+        if ($request->block_type) {
+            $query->where('block_type', $request->block_type);
+        }
+        $ips = $query->get();
+
+        return response()->json([
+            "success" => true,
+            "blocked_ips" => $ips
+        ]);
+    }
+
+
+    public function blockipDetails($ip)
+    {
+        try {
+            $ip = BlockedIps::findOrFail($ip);
+
+            return response()->json([
+                'success' => true,
+                'ip' => $ip
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => "Error in fetch details"
+            ], 500);
+        }
+    }
+
+    public function licenseReport(Request $request)
+    {
+        $request->validate([
+            "item_id" => "required|size:8"
+        ]);
+
+        $license = License::where('item_id', $request->item_id)->get();
+        $activity = ApiActivities::where('item_id', $request->item_id)->get();
+
+        return response()->json([
+            'success' => true,
+            'total_activity_count'=>count($activity),
+        ]);
+
     }
 }
