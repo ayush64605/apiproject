@@ -8,245 +8,11 @@ use App\Http\Controllers\Controller;
 use App\Models\ApiActivities;
 use App\Models\ApiRequest;
 use App\Models\BlockedIps;
-use App\Models\BuyerProfile;
-use App\Models\Product;
-use App\Models\ProductVersions;
-use App\Models\ResetLicenseActivityLogs;
-use Carbon\Carbon;
-use Illuminate\Container\Attributes\Storage;
 use Illuminate\Http\Request;
-use App\Models\License;
-use Jenssegers\Agent\Agent;
+
 
 class ApiController extends Controller
 {
-    public function register(Request $request)
-    {
-        $request->validate([
-            "item_id" => "required|size:8",
-            "purchase_code" => "required|uuid",
-            "purchase_time" => "required|date_format:Y-m-d\TH:i:sP",
-            "buyer" => "required|min:2|max:30",
-            "activated_domain" => "required|url",
-            "license" => "required|in:Regular License, Extended License",
-            "purchase_count" => "required|numeric",
-        ]);
-
-        $exist = License::where('purchase_code', $request->purchase_code)->first();
-        if ($exist) {
-            return response()->json([
-                "success" => false,
-                "message" => "Invalid purchase code",
-                "error_code" => "TOKEN_INVALID"
-            ], 400);
-        }
-
-        $product = Product::where('item_id', $request->item_id)->first();
-        if (!$product) {
-            return response()->json([
-                "success" => false,
-                "message" => "Invalid Item id",
-                "error_code" => "ITEM_ID_INVALID"
-            ], 400);
-        }
-
-        $agent = new Agent();
-
-        $license = new License();
-        $license->item_id = $request->item_id;
-        $license->item_name = $product->name;
-        $license->purchase_code = $request->purchase_code;
-        $license->purchase_time = $request->purchase_time;
-        $license->purchase_time = $request->purchase_time;
-        $license->buyer = $request->buyer;
-        $license->activated_domain = $request->activated_domain;
-        $license->license = $request->license;
-        $license->purchase_count = $request->purchase_count;
-        $license->ip = $request->ip();
-        $license->user_agent = $request->userAgent();
-        $license->os = $agent->platform();
-        $license->save();
-        return response()->json([
-            "success" => true,
-            "message" => "License registered successfully",
-            "data" => [
-                "verification_id" => "$request->item_id|$license->id|$request->buyer|$request->purchase_code",
-            ]
-        ], 200);
-    }
-
-    public function validate(Request $request)
-    {
-        $request->validate([
-            "item_id" => "required|size:8",
-            "purchase_code" => "required|uuid",
-            "activated_domain" => "required|url",
-            "version" => "required|string",
-        ]);
-
-        $license = License::where("item_id", $request->item_id)
-            ->where('purchase_code', $request->purchase_code)
-            ->whereRelation('product.versions', 'version', $request->version)
-            ->first();
-
-        if (!$license) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid license or version mismatch.',
-            ], 400);
-        }
-
-        $license->last_validate_request = Carbon::now();
-        $license->save();
-
-        return response()->json([
-            'success' => true,
-            'message' => 'License and Version Validated Successfully',
-        ], 200);
-    }
-
-
-    public function getDomain(Request $request)
-    {
-        $request->validate([
-            'purchase_code' => 'required|uuid',
-        ]);
-
-        $license = License::where('purchase_code', $request->purchase_code)->first();
-        if (!$license) {
-            return response()->json([
-                'success' => false,
-                'message' => 'License not found',
-            ]);
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'License found sucessfully',
-            "data" => [
-                "activated_domain" => $license->activated_domain,
-            ]
-        ]);
-    }
-
-    public function checkUpdate(Request $request)
-    {
-        $request->validate([
-            "item_id" => "required|size:8",
-            "purchase_code" => "required|uuid",
-            "initial" => "nullable|boolean"
-        ]);
-
-        $license = License::where("item_id", $request->item_id)
-            ->where('purchase_code', $request->purchase_code)
-            ->first();
-
-        if (!$license) {
-            return response()->json(['success' => false, 'message' => 'License Not Found'], 400);
-        }
-
-        $versionQuery = $license->availableVersions();
-
-        if ($request->boolean('initial')) {
-            $version = $versionQuery->latest('version')->first();
-        } else {
-            $version = $versionQuery->where('version', '>', $license->installed_version)
-                ->orderBy('version', 'asc')
-                ->first();
-        }
-
-        if (!$version) {
-            return response()->json([
-                'success' => true,
-                'message' => 'No updates available',
-                'data' => [
-                    'current_version' => $license->installed_version,
-                    'latest_version' => $license->installed_version
-                ]
-            ]);
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Update available',
-            'data' => [
-                'current_version' => $license->installed_version,
-                'latest_version' => $version->version,
-                'updated_id' => $version->vid,
-                "has_sql_update" => (bool) $version->sql_file,
-                "release_date" => $version->release_date,
-                "changelog" => $version->changelog,
-                "summary" => $version->summary
-            ]
-        ]);
-    }
-
-
-    public function resetLicense(Request $request)
-    {
-        $request->validate([
-            "item_id" => "required|size:8",
-            "purchase_code" => "required|uuid",
-        ]);
-
-        $license = License::where("item_id", $request->item_id)
-            ->where('purchase_code', $request->purchase_code)
-            ->first();
-
-        if (!$license) {
-            return response()->json([
-                'success' => false,
-                'message' => 'License not found',
-            ], 404);
-        }
-
-        $lastReset = $license->resetLogs()->latest('id')->first();
-
-        if ($lastReset && $lastReset->reset_license_time->greaterThan(now()->subWeek())) {
-            $nextAvailable = $lastReset->reset_license_time->addWeek();
-            return response()->json([
-                'success' => false,
-                'message' => 'You can only reset your license once per week. Next available reset: ' .
-                    $nextAvailable->toDateTimeString()
-            ], 403);
-        }
-
-        $license->resetLogs()->create([
-            'reset_license_time' => now(),
-            'type' => 'agent',
-            'reset_by' => 1,
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'License reset successfully.'
-        ], 200);
-    }
-
-    public function buyers()
-    {
-        $buyers = BuyerProfile::select('id', 'envato_username', 'email')->get();
-        return response()->json([
-            'success' => true,
-            'buyers' => $buyers
-        ]);
-    }
-
-    public function buyerdetails($buyer)
-    {
-        try {
-            $buyer = BuyerProfile::findOrFail($buyer);
-            return response()->json([
-                'success' => true,
-                'buyer' => $buyer
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => "Error in fetch details"
-            ], 500);
-        }
-    }
 
     public function apiRequests(Request $request)
     {
@@ -265,7 +31,10 @@ class ApiController extends Controller
         }
         return response()->json([
             'success' => true,
-            'requests' => $requests
+            'message' => 'request fetch successfully.',
+            'data' => [
+                'requests' => $requests
+            ]
         ]);
     }
 
@@ -278,11 +47,10 @@ class ApiController extends Controller
         ]);
 
         $query = ApiActivities::where('item_id', $request->item_id)
-            ->where('purchase_code', $request->purchase_code)
-            ->where('domain', $request->domain);
+            ->where('purchase_code', $request->purchase_code);
 
         if ($request->event_type) {
-            $query->where('event_type', 'LIKE', "%{$request->event_type}%");
+            $query->where('event_type', $request->event_type);
         }
 
 
@@ -297,125 +65,21 @@ class ApiController extends Controller
 
         return response()->json([
             'success' => true,
-            'activities' => $activities
+            'message' => "api activity fetch successfully",
+            "data" => [
+                "activities" => $activities
+            ]
         ]);
     }
 
-    public function downloadSql(Request $request, $vid)
-    {
-        $request->validate([
-            "client_name" => "required|min:2|max:30",
-            "purchase_code" => "required|uuid",
-            "domain" => "required|url"
-        ]);
-
-        $license = License::where('purchase_code', $request->purchase_code)->where('activated_domain', $request->domain)->first();
-        if (!$license) {
-            return response()->json([
-                'success' => false,
-                'message' => 'License not found',
-            ], 404);
-        }
-
-        $version = ProductVersions::where('vid', $vid)->first();
-        if (!$version) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Version not found',
-            ], 404);
-        }
-
-        if ($license->item_id != $version->pid || $license->installed_version != $version->version) {
-            return response()->json([
-                'success' => false,
-                'message' => 'license version and version specification not matched',
-            ]);
-        }
-
-        $filePath = storage_path('app/public/sql/' . $version->sql_file);
-
-        if (!file_exists($filePath)) {
-            return response()->json(['error' => 'File not found.'], 404);
-        }
-
-        return response()->download($filePath, $version->sql_file, [
-            'Content-Type' => 'text/plain',
-        ]);
-
-    }
-
-    public function downloadMain(Request $request, $vid)
-    {
-        $request->validate([
-            "client_name" => "required|min:2|max:30",
-            "purchase_code" => "required|uuid",
-            "domain" => "required|url"
-        ]);
-
-        $license = License::where('purchase_code', $request->purchase_code)->where('activated_domain', $request->domain)->first();
-        if (!$license) {
-            return response()->json([
-                'success' => false,
-                'message' => 'License not found',
-            ], 404);
-        }
-
-        $version = ProductVersions::where('vid', $vid)->first();
-        if (!$version) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Version not found',
-            ], 404);
-        }
-
-        if ($license->item_id != $version->pid || $license->installed_version != $version->version) {
-            return response()->json([
-                'success' => false,
-                'message' => 'license version and version specification not matched',
-            ]);
-        }
-
-        $filePath = storage_path('app/public/main/' . $version->main_file);
-
-        if (!file_exists($filePath)) {
-            return response()->json(['error' => 'File not found.'], 404);
-        }
-
-        return response()->download($filePath, $version->main_file, [
-            'Content-Type' => 'text/plain',
-        ]);
-
-    }
-
-    public function products()
-    {
-        $products = Product::all();
-        return response()->json([
-            'success' => true,
-            'products' => $products
-        ]);
-    }
-
-    public function productDetails($product)
-    {
-        try {
-            $product = Product::with('versions')->findOrFail($product);
-
-            return response()->json([
-                'success' => true,
-                'product' => $product
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => "Error in fetch details"
-            ], 500);
-        }
-    }
-
-    public function blockedIps(Request $request)
+    public function blockedIps(Request $request, $ip = null)
     {
         $query = BlockedIps::query();
+
+        if ($ip) {
+            $query->where('id', $ip);
+        }
+
         if ($request->block_type) {
             $query->where('block_type', $request->block_type);
         }
@@ -423,41 +87,10 @@ class ApiController extends Controller
 
         return response()->json([
             "success" => true,
-            "blocked_ips" => $ips
+            "message" => "ip fetch successfully",
+            "data" => [
+                "blocked_ips" => $ips
+            ]
         ]);
-    }
-
-
-    public function blockipDetails($ip)
-    {
-        try {
-            $ip = BlockedIps::findOrFail($ip);
-
-            return response()->json([
-                'success' => true,
-                'ip' => $ip
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => "Error in fetch details"
-            ], 500);
-        }
-    }
-
-    public function licenseReport(Request $request)
-    {
-        $request->validate([
-            "item_id" => "required|size:8"
-        ]);
-
-        $license = License::where('item_id', $request->item_id)->get();
-        $activity = ApiActivities::where('item_id', $request->item_id)->get();
-
-        return response()->json([
-            'success' => true,
-            'total_activity_count'=>count($activity),
-        ]);
-
     }
 }
