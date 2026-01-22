@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 use App\Http\Controllers\Api\ApiController;
-use App\Http\Controllers\api\BuyerController;
-use App\Http\Controllers\api\LicenseController;
-use App\Http\Controllers\api\ProductController;
+use App\Http\Controllers\Api\BuyerController;
+use App\Http\Controllers\Api\LicenseController;
+use App\Http\Controllers\Api\ProductController;
 
 /*
 |--------------------------------------------------------------------------
